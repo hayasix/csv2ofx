@@ -3,6 +3,7 @@
 
 """csv2ofx.py -- CSV to OFX converter"""
 
+import sys
 import os
 import csv
 import datetime
@@ -15,7 +16,7 @@ __author__ = "HAYASI Hideki"
 __email__ = "linxs@linxs.org"
 __copyright__ = "Copyright (C) 2012 HAYASI Hideki <linxs@linxs.org>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0a2"
+__version__ = "1.0.0a3"
 __status__ = "Development"
 
 
@@ -173,9 +174,9 @@ class Journal(set):
     def read_csv(self,
             pathname,
             accounttype="credit",
-            header=None,
             cardnumber=None,
             cardname=None,
+            header=None,
             fields=None,  # date, amount, description, memo, commission
             encoding=None,
             tzinfo=None,
@@ -197,7 +198,10 @@ class Journal(set):
             n = lambda f: int(c(f).replace(",", "") or "0")
             for i, line in enumerate(reader):
                 t = Transaction()
-                t.date = parse_date(c("date")) or prev_date
+                try:
+                    t.date = parse_date(c("date")) or prev_date
+                except ValueError:
+                    continue
                 t.date.replace(tzinfo=tzinfo)
                 t.description = c("description")
                 if accounttype == "bank":
@@ -310,7 +314,6 @@ def main():
     conf = SafeConfigParser(dict(
             encoding=DEFAULT_CSV_ENCODING,
             timezone=DEFAULT_TIMEZONE,
-            header=None,
             cardnumber=None,
             cardname=None,
             ))
@@ -350,9 +353,9 @@ def main():
             journal = Journal()
             journal.read_csv(in_,
                     accounttype=accounttype,
-                    header=header,
                     cardnumber=cardnumber, cardname=cardname,
-                    fields=body, encoding=encoding, tzinfo=tzinfo)
+                    header=header, fields=body, encoding=encoding,
+                    tzinfo=tzinfo)
             journal.write_ofx(out)
 
 
