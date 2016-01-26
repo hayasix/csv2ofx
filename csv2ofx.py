@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.4
+#!/usr/bin/env python3.5
 # vim: set fileencoding=utf-8 fileformat=unix :
 
 """csv2ofx.py -- CSV to OFX converter"""
@@ -16,9 +16,11 @@ __author__ = "HAYASI Hideki"
 __email__ = "linxs@linxs.org"
 __copyright__ = "Copyright (C) 2012 HAYASI Hideki <linxs@linxs.org>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0a3"
+__version__ = "1.0.0a4"
 __status__ = "Development"
 
+
+REFMARK = unicodedata.lookup("REFERENCE MARK")
 
 DEFAULT_CSV_ENCODING = "cp932"
 DEFAULT_TIMEZONE = "JST-9"
@@ -199,9 +201,9 @@ class Journal(set):
             for i, line in enumerate(reader):
                 t = Transaction()
                 try:
-                    t.date = parse_date(c("date")) or prev_date
+                    t.date = parse_date(c("date"))
                 except ValueError:
-                    continue
+                    t.date = prev_date
                 t.date.replace(tzinfo=tzinfo)
                 t.description = c("description")
                 if accounttype == "bank":
@@ -216,10 +218,9 @@ class Journal(set):
                 else:
                     t.memo = ""
                 if "commission" in fields:
-                    if not t.description or t.description.startswith("腦駈住"):
+                    if not t.description or t.description.startswith(REFMARK):
                         continue
                     if not t.amount:
-                        t.date = t.date or prev_date
                         t.amount = - n("commission")
                 t.fitid = i  # to overcome buggy OFX's
                 self.add(t)
