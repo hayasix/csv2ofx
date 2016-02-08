@@ -10,13 +10,14 @@ import datetime
 import glob
 import re
 import unicodedata
+from textwrap import dedent
 
 
 __author__ = "HAYASI Hideki"
 __email__ = "linxs@linxs.org"
 __copyright__ = "Copyright (C) 2012 HAYASI Hideki <linxs@linxs.org>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0a4"
+__version__ = "1.0.0a5"
 __status__ = "Development"
 
 
@@ -91,6 +92,13 @@ FOOTER = """\
 
 
 def parse_fielddef(cols):
+    """Build the reverse lookup table for field positions.
+
+    cols        (str) comma-separated field names
+
+    Returns a dict, each key of which is a field name and its associated
+    value is the field position.
+    """
     dic = dict()
     for i, col in enumerate(cols.split(",")):
         col = col.strip()
@@ -105,6 +113,15 @@ def parse_fielddef(cols):
 
 
 def parse_date(s, tzinfo=None):
+    """Parse a date string.
+
+    s           (str) date string; format:
+                    'YYYY/mm/dd' | 'YYYY-mm-dd' | 'YYYYmmdd'
+    tzinfo      (Timezone)
+
+    Returns a datetime.datetime with tzinfo as the timezone information.
+    If tzinfo=None, a naive (timezone-less) datetime.dateme is returned.
+    """
     if not isinstance(s, str):
         return None
     dt = None
@@ -122,6 +139,13 @@ def parse_date(s, tzinfo=None):
 
 
 class Timezone(datetime.tzinfo):
+
+    """A concrete class of datetime.tzinfo.
+
+    >>> Timezone('JST', -9).utcoffset()
+    datetime.timedelta(0, 32400)
+
+    """
 
     def __init__(self, tzname, utcoffset, dst=0):
         self._tzname = tzname
@@ -142,6 +166,8 @@ class Timezone(datetime.tzinfo):
 
 class Transaction(object):
 
+    """A transaction record."""
+
     def __init__(self,
             date=datetime.date.today(),
             description="unknown",
@@ -161,12 +187,50 @@ class Transaction(object):
         self.memo = memo
         self.account = account
         self.status = status
+        self.tzinfo = tzinfo
+
+    def __repr__(self):
+        return "Transaction({dt}:{dsc}:{amt}:{cat}:{tag}:{mem}:{act}:{sts}:{tz})".format(
+                dt=self.date.strftime("%Y-%m-%d"), dsc=self.description,
+                amt=self.amount, cat=self.category, tag=",".join(self.tags),
+                mem=self.memo, act=self.account, sts=self.status,
+                tz=self.tzinfo or "")
+
+    def __str__(self):
+        return dedent("""\
+                Date: {dt}
+                Description: {dsc}
+                Amount: {amt}
+                Category: {cat}
+                Tags: {tag}
+                Memo: {mem}
+                Account: {act}
+                Status: {sts}
+                Timezone: {tz}
+                """).format(
+                        dt=self.date.strftime("%Y-%m-%d"),
+                        dsc=self.description,
+                        amt=self.amount,
+                        cat=self.category,
+                        tag=",".join(self.tags),
+                        mem=self.memo,
+                        act=self.account,
+                        sts=self.status,
+                        tz=self.tzinfo or "")
 
 
 class Journal(set):
 
+    """A journal i.e. collection of transactions."""
+
     @staticmethod
     def ofxdatetime(dt):
+        """Build a datetime string that complies with OFX standard.
+
+        dt      (datetime.datetime)
+
+        Returns a str.
+        """
         if not dt.tzinfo:  # naive localtime
             return dt.strftime("%Y%m%d%H%M%S")
         return dt.strftime("%Y%m%d%H%M%S[{gmtoffset:+.2f}:{tzname}]").format(
@@ -183,6 +247,24 @@ class Journal(set):
             encoding=None,
             tzinfo=None,
             **option):
+        """Read transactions from CSV file.
+
+        pathname        (str) pathname of the source CSV file
+        accounttype     (str) 'bank' | 'credit'
+        cardnumber      (str) card number (16 digits or so)
+                        (int) field position of card number (if header==True)
+        cardname        (str) card name (card holder's name)
+                        (int) field position of card name (if header==True)
+        header          (bool) Read card number/name from the header
+        fields          (str) comma-separated field names; a sequence of
+                        'date', 'amount', 'description', 'memo' and
+                        'commission'
+        encoding        (str) encoding of the source CSV file
+        tzinfo          (datetime.tzinfo) timezone for transactions
+        **option        (dict) (ignored currently)
+
+        Returns None.  To get transactions read, iterate over self.
+        """
         fields = parse_fielddef(fields)
         # Read CSV header.
         encoding = encoding or DEFAULT_CSV_ENCODING
@@ -230,6 +312,13 @@ class Journal(set):
             self.datetime = datetime.datetime.now(tzinfo)
 
     def write_ofx(self, pathname, **convert):
+        """Write transactions as a OFX stream.
+
+        pathname        (str) location to write transactions out
+        **convert       (dict) (ignored currently)
+
+        Returns None.
+        """
         normalize = lambda s: unicodedata.normalize("NFKC", s)
         # Build OFX data.
         result = [HEADER.format(
@@ -270,6 +359,12 @@ def build_argparser():
 
 
 def getencoding(path):
+    """Detect encoding string from the leading two lines.
+
+    path        (str) pathname of the source file
+
+    Returns an encoding str or None.
+    """
     coding = re.compile(r"coding[:=]\s*(\w)+")
     with open(path, encoding="ascii") as in_:
         for _ in (0, 1):
@@ -283,6 +378,16 @@ def getencoding(path):
 
 
 def gettimezone(timezone):
+    """Get a Timezone.
+
+    timezone        (str) timezone string
+
+    Returns a Timezone.
+
+    >>> gettimezone('JST-9').utcoffset()
+    datetime.timedelta(0, 32400)
+
+    """
     p = timezone.find("+")
     if p < 0:
         p = timezone.find("-")
@@ -292,6 +397,16 @@ def gettimezone(timezone):
 
 
 def preprocess_btmucc(pathname):
+    """Special preprocessor for the odd CSV files presented by BTMU.
+
+    pathname        (str) pathname of the source CSV file
+
+    Returns None.
+
+    This function eliminate the extraordinariness in its header part.
+    The original file is preserved but renamed with the additional suffix
+    '.orig'.
+    """
     if not pathname.lower().endswith(".csv"):
         return
     origname = pathname + ".orig"
