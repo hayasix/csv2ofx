@@ -30,7 +30,7 @@ __author__ = "HAYASI Hideki"
 __email__ = "linxs@linxs.org"
 __copyright__ = "Copyright (C) 2012 HAYASI Hideki <linxs@linxs.org>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0a7"
+__version__ = "1.0.0a8"
 __status__ = "Development"
 
 
@@ -301,10 +301,16 @@ class Journal(set):
                     t.date = prev_date
                 t.date.replace(tzinfo=tzinfo)
                 t.description = c("description")
-                if accounttype == "bank":
+                try:
                     t.amount = n("+amount") - n("-amount")
-                else:  # accounttype == "credit":
-                    t.amount = - n("amount")
+                except KeyError:
+                    try:
+                        t.amount = n("amount")
+                        if accounttype == "credit":
+                            t.amount *= -1
+                    except KeyError:
+                        t.amount = n("-amount")
+                        assert accounttype == "credit"
                 if "memo" in fields:
                     if isinstance(fields["memo"], (list, tuple)):
                         t.memo = ",".join(line[col] for col in fields["memo"])
