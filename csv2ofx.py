@@ -1,7 +1,20 @@
 #!/usr/bin/env python3.5
 # vim: set fileencoding=utf-8 fileformat=unix :
 
-"""csv2ofx.py -- CSV to OFX converter"""
+"""CSV to OFX converter.
+
+Usage: {0} [options] PATH...
+
+Options:
+  -h, --help            show this help message and exit.
+  -v, --version         show version.
+  -f, --conf <conf>     read settings from CONF.
+  --encoding <encoding>  specify encoding of CONF.
+  -i, --issuer <issuer>  issuer defined as section in CONF.
+  -z, --timezone <timezone>  timezone eg. GMT+0, JST-9, PST+8.
+  --upper               coerce description (name of counterpart) to uppercase.
+
+"""
 
 import sys
 import os
@@ -17,7 +30,7 @@ __author__ = "HAYASI Hideki"
 __email__ = "linxs@linxs.org"
 __copyright__ = "Copyright (C) 2012 HAYASI Hideki <linxs@linxs.org>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0a6"
+__version__ = "1.0.0a7"
 __status__ = "Development"
 
 
@@ -343,26 +356,6 @@ class Journal(set):
             f.writelines(result)
 
 
-def build_argparser():
-    from argparse import ArgumentParser
-    parser = ArgumentParser(usage="%(prog)s [options] filespec ...")
-    arg = parser.add_argument
-    arg("-f", "--conf", dest="conf", default="~/csv2ofx.ini",
-            help="read settings from CONF")
-    arg("--encoding", dest="encoding", default=None,
-            help="specify encoding of CONF")
-    arg("-i", "--issuer", dest="issuer", default="visa",
-            help="issuer defined as section in CONF")
-    arg("-z", "--timezone", dest="timezone", default=None,
-            help="timezone eg. GMT+0, JST-9, PST+8")
-    arg("--upper", dest="upper", action="store_true",
-            help="coerce description (name of counterpart) to uppercase")
-    arg("-v", "--version", dest="version", action="store_true",
-            help="show version")
-    arg("filespec", nargs="*")
-    return parser
-
-
 def getencoding(path):
     """Detect encoding string from the leading two lines.
 
@@ -424,18 +417,15 @@ def preprocess_btmucc(pathname):
         out.write(in_.read())
 
 
-def main():
-    from configparser import SafeConfigParser, NoOptionError
-
-    parser = build_argparser()
-    args = parser.parse_args()
-
-    if args.version:
-        print(__version__)
-        sys.exit(0)
+def main(docstring):
+    import docopt
+    import configparser
+    args = docopt.docopt(docstring.format(__file__), version=__version__)
+    for k, v in args.items():
+        setattr(args, k.lstrip("-"), v)
     args.conf = os.path.expanduser(args.conf)
     args.encoding = args.encoding or getencoding(args.conf) or "utf-8"
-    conf = SafeConfigParser(dict(
+    conf = configparser.SafeConfigParser(dict(
             encoding=DEFAULT_CSV_ENCODING,
             timezone=DEFAULT_TIMEZONE,
             cardnumber=None,
@@ -459,15 +449,15 @@ def main():
             cardnumber = cardnumber or header["cardnumber"]
         if "cardname" in header:
             cardname = cardname or header["cardname"]
-    except NoOptionError:
+    except configparser.NoOptionError:
         header = None
     body = conf.get(args.issuer, "body")
 
-    for spec in args.filespec:
-        if "*" in spec or "?" in spec:
-            filelist = glob.glob(spec)
+    for path in args.PATH:
+        if "*" in path or "?" in path:
+            filelist = glob.glob(path)
         else:
-            filelist = [spec]
+            filelist = [path]
         for in_ in filelist:
             if not in_.lower().endswith(".csv"):
                 raise ValueError("only CSV files are acceptable")
@@ -484,4 +474,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(__doc__)
