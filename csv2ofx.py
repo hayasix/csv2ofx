@@ -17,7 +17,7 @@ __author__ = "HAYASI Hideki"
 __email__ = "linxs@linxs.org"
 __copyright__ = "Copyright (C) 2012 HAYASI Hideki <linxs@linxs.org>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0a5"
+__version__ = "1.0.0a6"
 __status__ = "Development"
 
 
@@ -311,15 +311,16 @@ class Journal(set):
             self.cardname = cardname
             self.datetime = datetime.datetime.now(tzinfo)
 
-    def write_ofx(self, pathname, **convert):
+    def write_ofx(self, pathname, upper=False):
         """Write transactions as a OFX stream.
 
         pathname        (str) location to write transactions out
-        **convert       (dict) (ignored currently)
+        upper           (bool) coerce description to uppercase
 
         Returns None.
         """
         normalize = lambda s: unicodedata.normalize("NFKC", s)
+        xcase = lambda s: s.upper() if upper else s
         # Build OFX data.
         result = [HEADER.format(
                 datetime=self.ofxdatetime(self.datetime),
@@ -333,7 +334,7 @@ class Journal(set):
                 datetime=self.ofxdatetime(t.date),
                 amount=t.amount,
                 fitid=t.fitid,
-                description=normalize(t.description),
+                description=xcase(normalize(t.description)),
                 memo=normalize(t.memo),
                 ) for t in sorted(self, key=lambda t: t.fitid))
         result.append(FOOTER.format(
@@ -354,6 +355,10 @@ def build_argparser():
             help="issuer defined as section in CONF")
     arg("-z", "--timezone", dest="timezone", default=None,
             help="timezone eg. GMT+0, JST-9, PST+8")
+    arg("--upper", dest="upper", action="store_true",
+            help="coerce description (name of counterpart) to uppercase")
+    arg("-v", "--version", dest="version", action="store_true",
+            help="show version")
     arg("filespec", nargs="*")
     return parser
 
@@ -425,6 +430,9 @@ def main():
     parser = build_argparser()
     args = parser.parse_args()
 
+    if args.version:
+        print(__version__)
+        sys.exit(0)
     args.conf = os.path.expanduser(args.conf)
     args.encoding = args.encoding or getencoding(args.conf) or "utf-8"
     conf = SafeConfigParser(dict(
@@ -472,7 +480,7 @@ def main():
                     cardnumber=cardnumber, cardname=cardname,
                     header=header, fields=body, encoding=encoding,
                     tzinfo=tzinfo)
-            journal.write_ofx(out)
+            journal.write_ofx(out, upper=args.upper)
 
 
 if __name__ == "__main__":
