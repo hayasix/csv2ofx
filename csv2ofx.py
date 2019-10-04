@@ -6,14 +6,14 @@
 Usage: {0} [options] PATH...
 
 Options:
-  -h, --help            show this help message and exit.
-  -v, --version         show version.
-  -f, --conf <conf>     read settings from CONF.
-  --encoding <encoding>  specify encoding of CONF.
-  -i, --issuer <issuer>  issuer defined as section in CONF.
-  -z, --timezone <timezone>  timezone eg. GMT+0, JST-9, PST+8.
-  --upper               coerce description (name of counterpart) to uppercase.
-  -a, --amazon <file>   specify Amazon.co.jp order history file
+  -h, --help                show this help message and exit.
+  -v, --version             show version.
+  -f, --conf <conf>         read settings from CONF.
+  -i, --issuer <issuer>     issuer defined as section in CONF.
+  -a, --amazon <file>       specify Amazon.co.jp order history file
+  -z, --timezone <tz>       timezone eg. GMT+0, JST-9, PST+8.
+  --encoding <encoding>     specify encoding of CONF.
+  --upper                   coerce description to uppercase.
 
 """
 
@@ -27,9 +27,9 @@ import unicodedata
 from textwrap import dedent
 
 
-__author__ = "HAYASI Hideki"
-__email__ = "linxs@linxs.org"
-__copyright__ = "Copyright (C) 2012 HAYASI Hideki <linxs@linxs.org>"
+__author__ = "HAYASHI Hideki"
+__email__ = "hideki@hayasix.com"
+__copyright__ = "Copyright (C) 2012 HAYASHI Hideki <hideki@hayasix.com>"
 __license__ = "ZPL 2.1"
 __version__ = "1.0.0a10"
 __status__ = "Development"
