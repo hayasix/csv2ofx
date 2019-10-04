@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.5
+#!/usr/bin/env python3
 # vim: set fileencoding=utf-8 fileformat=unix :
 
 """CSV to OFX converter.
@@ -13,6 +13,7 @@ Options:
   -i, --issuer <issuer>  issuer defined as section in CONF.
   -z, --timezone <timezone>  timezone eg. GMT+0, JST-9, PST+8.
   --upper               coerce description (name of counterpart) to uppercase.
+  -a, --amazon <file>   specify Amazon.co.jp order history file
 
 """
 
@@ -30,7 +31,7 @@ __author__ = "HAYASI Hideki"
 __email__ = "linxs@linxs.org"
 __copyright__ = "Copyright (C) 2012 HAYASI Hideki <linxs@linxs.org>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0a8"
+__version__ = "1.0.0a10"
 __status__ = "Development"
 
 
@@ -102,6 +103,10 @@ FOOTER = """\
  </CREDITCARDMSGSRSV1>
 </OFX>
 """.replace("\r\n", "\n")
+
+
+def normalize(s):
+    return unicodedata.normalize("NFKC", s)
 
 
 def parse_fielddef(cols):
@@ -259,6 +264,7 @@ class Journal(set):
             fields=None,  # date, amount, description, memo, commission
             encoding=None,
             tzinfo=None,
+            amazon=None,
             **option):
         """Read transactions from CSV file.
 
@@ -274,10 +280,14 @@ class Journal(set):
                         'commission'
         encoding        (str) encoding of the source CSV file
         tzinfo          (datetime.tzinfo) timezone for transactions
+        amazon          (str) Amazon.co.jp order history
         **option        (dict) (ignored currently)
 
         Returns None.  To get transactions read, iterate over self.
         """
+        if amazon:
+            az = AmazonJournal()
+            az.read_csv(amazon)
         fields = parse_fielddef(fields)
         # Read CSV header.
         encoding = encoding or DEFAULT_CSV_ENCODING
@@ -291,8 +301,8 @@ class Journal(set):
                 next(reader)  # Skip 1 line.
             # Read transactions.
             prev_date = datetime.datetime(2000, 1, 1)
-            c = lambda f: line[fields[f]]
-            n = lambda f: int(c(f).replace(",", "") or "0")
+            c = lambda f: normalize(line[fields[f]])
+            n = lambda f: int(normalize(c(f)).replace(",", "") or "0")
             for i, line in enumerate(reader):
                 t = Transaction()
                 try:
@@ -318,6 +328,23 @@ class Journal(set):
                         t.memo = c("memo")
                 else:
                     t.memo = ""
+                t.description = re.sub(" +", " ", t.description)
+                t.memo = re.sub(" +", " ", t.memo)
+                if amazon:
+                    txns = az.search(date=t.date.date(), amount=-t.amount)
+                    if len(txns) == 1:
+                        t.memo = normalize((txns[0]["description"]) +
+                                   " " +
+                                   txns[0]["memo"]
+                                 ).strip()
+                        if " 販売: " in t.memo:
+                            t.memo = t.memo[:t.memo.index(" 販売: ")]
+                if "セブンーイレブン" in t.memo:
+                    t.memo = t.memo.replace("セブンーイレブン", "セブン-イレブン")
+                dlen = len(t.description)
+                if (t.memo[:dlen] == t.description and
+                        t.memo[dlen:].startswith(",")):
+                    t.memo = t.memo[dlen + 1:]
                 if "commission" in fields:
                     if not t.description or t.description.startswith(REFMARK):
                         continue
@@ -338,7 +365,6 @@ class Journal(set):
 
         Returns None.
         """
-        normalize = lambda s: unicodedata.normalize("NFKC", s)
         xcase = lambda s: s.upper() if upper else s
         # Build OFX data.
         result = [HEADER.format(
@@ -360,6 +386,32 @@ class Journal(set):
                 totalamount=sum(t.amount for t in self)))
         with open(pathname, "w", encoding="utf-8") as f:
             f.writelines(result)
+
+
+class AmazonJournal(dict):
+
+    def read_csv(self, pathname):
+        with open(pathname, "r", encoding="utf-8") as in_:
+            in_.readline()  # skip the header
+            for r in csv.reader(in_):
+                if (not r[11]) or float(r[11]) == 0.0:
+                    continue
+                self[r[1]] = dict(
+                    date=datetime.date(*(map(int, r[12].split("/")))),
+                    amount=float(r[11]),
+                    description=r[2],
+                    memo=r[3],
+                    price=float(r[4]),
+                    quantity=float(r[5]),
+                    )
+
+    def search(self, date=None, amount=None):
+        if not isinstance(date, (tuple, list)):
+            date = (date - datetime.timedelta(days=1),
+                    date + datetime.timedelta(days=1))
+        return [txn for txn in self.values()
+                if (date is None or date[0] <= txn["date"] < date[1]) and
+                   (amount is None or txn["amount"] == amount)]
 
 
 def getencoding(path):
@@ -429,7 +481,7 @@ def main(docstring):
     args = docopt.docopt(docstring.format(__file__), version=__version__)
     for k, v in args.items():
         setattr(args, k.lstrip("-"), v)
-    args.conf = os.path.expanduser(args.conf)
+    args.conf = os.path.expanduser(args.conf or "~/csv2ofx.ini")
     args.encoding = args.encoding or getencoding(args.conf) or "utf-8"
     conf = configparser.SafeConfigParser(dict(
             encoding=DEFAULT_CSV_ENCODING,
@@ -475,7 +527,7 @@ def main(docstring):
                     accounttype=accounttype,
                     cardnumber=cardnumber, cardname=cardname,
                     header=header, fields=body, encoding=encoding,
-                    tzinfo=tzinfo)
+                    tzinfo=tzinfo, amazon=args.amazon)
             journal.write_ofx(out, upper=args.upper)
 
 
