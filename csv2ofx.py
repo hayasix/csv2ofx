@@ -11,6 +11,7 @@ Options:
   -f, --conf <conf>         read settings from CONF.
   -i, --issuer <issuer>     issuer defined as section in CONF.
   -a, --amazon <file>       specify Amazon.co.jp order history file
+  -s, --subst <file>        specify user-defined memo substitution table
   -z, --timezone <tz>       timezone eg. GMT+0, JST-9, PST+8.
   --encoding <encoding>     specify encoding of CONF.
   --upper                   coerce description to uppercase.
@@ -31,7 +32,7 @@ __author__ = "HAYASHI Hideki"
 __email__ = "hideki@hayasix.com"
 __copyright__ = "Copyright (C) 2012 HAYASHI Hideki <hideki@hayasix.com>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0a10"
+__version__ = "1.0.0a11"
 __status__ = "Development"
 
 
@@ -265,6 +266,7 @@ class Journal(set):
             encoding=None,
             tzinfo=None,
             amazon=None,
+            subst=None,
             **option):
         """Read transactions from CSV file.
 
@@ -281,6 +283,7 @@ class Journal(set):
         encoding        (str) encoding of the source CSV file
         tzinfo          (datetime.tzinfo) timezone for transactions
         amazon          (str) Amazon.co.jp order history
+        subst           (str) User-defined memo substitution table
         **option        (dict) (ignored currently)
 
         Returns None.  To get transactions read, iterate over self.
@@ -288,6 +291,22 @@ class Journal(set):
         if amazon:
             az = AmazonJournal()
             az.read_csv(amazon)
+        if subst:
+            # Detect the encoding used in the substitution source.
+            with open(subst) as in_:
+                pat = re.compile("^#.*coding[:=]\s*([\w\-]+)", re.I)
+                lines = [in_.readline(), in_.readline()]
+                g = [pat.match(lines[0]), pat.match(lines[1])]
+                menc = ["utf-8"] + [j.group(1) for j in g if j is not None]
+                menc = menc[-1]
+            # Setup the memo substitution table.
+            substdic = dict()
+            with open(subst, "r", encoding=menc) as in_:
+                for line in in_:
+                    if line.startswith("#"): continue
+                    if "=" not in line: continue
+                    k, v = line.strip().split("=", 1)
+                    substdic[k] = v
         fields = parse_fielddef(fields)
         # Read CSV header.
         encoding = encoding or DEFAULT_CSV_ENCODING
@@ -339,8 +358,10 @@ class Journal(set):
                                  ).strip()
                         if " 販売: " in t.memo:
                             t.memo = t.memo[:t.memo.index(" 販売: ")]
-                if "セブンーイレブン" in t.memo:
-                    t.memo = t.memo.replace("セブンーイレブン", "セブン-イレブン")
+                # Fix memo using the user-defined substitution table.
+                for k, v in substdic.items():
+                    t.memo.replace(k, v)
+                # Remove duplicate description from memo.
                 dlen = len(t.description)
                 if (t.memo[:dlen] == t.description and
                         t.memo[dlen:].startswith(",")):
@@ -527,7 +548,7 @@ def main(docstring):
                     accounttype=accounttype,
                     cardnumber=cardnumber, cardname=cardname,
                     header=header, fields=body, encoding=encoding,
-                    tzinfo=tzinfo, amazon=args.amazon)
+                    tzinfo=tzinfo, amazon=args.amazon, subst=args.subst)
             journal.write_ofx(out, upper=args.upper)
 
 
