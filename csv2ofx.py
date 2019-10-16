@@ -32,7 +32,7 @@ __author__ = "HAYASHI Hideki"
 __email__ = "hideki@hayasix.com"
 __copyright__ = "Copyright (C) 2012 HAYASHI Hideki <hideki@hayasix.com>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0a11"
+__version__ = "1.0.0a12"
 __status__ = "Development"
 
 
@@ -40,6 +40,7 @@ REFMARK = unicodedata.lookup("REFERENCE MARK")
 
 DEFAULT_CSV_ENCODING = "cp932"
 DEFAULT_TIMEZONE = "JST-9"
+UTF8BOM = b"\xef\xbb\xbf"  # "\ufeff"
 
 HEADER = """\
 OFXHEADER:100
@@ -238,6 +239,16 @@ class Transaction(object):
                         tz=self.tzinfo or "")
 
 
+def detect_encoding(path):
+    """Detect the encoding of a text file."""
+    pat = re.compile(b"^#.*coding[:=]\s*([\w\-]+)", re.I)
+    with open(path, "rb") as in_:
+        if in_.read(3) == UTF8BOM: return "utf-8-sig"
+        in_.seek(0)
+        mo = [pat.match(in_.readline()), pat.match(in_.readline())]
+    return ([m.group(1) for m in mo if m] or [b"utf-8"])[0].decode()
+
+
 class Journal(set):
 
     """A journal i.e. collection of transactions."""
@@ -292,16 +303,10 @@ class Journal(set):
             az = AmazonJournal()
             az.read_csv(amazon)
         if subst:
-            # Detect the encoding used in the substitution source.
-            with open(subst) as in_:
-                pat = re.compile("^#.*coding[:=]\s*([\w\-]+)", re.I)
-                lines = [in_.readline(), in_.readline()]
-                g = [pat.match(lines[0]), pat.match(lines[1])]
-                menc = ["utf-8"] + [j.group(1) for j in g if j is not None]
-                menc = menc[-1]
+            enc = detect_encoding(subst)
             # Setup the memo substitution table.
             substdic = dict()
-            with open(subst, "r", encoding=menc) as in_:
+            with open(subst, "r", encoding=enc) as in_:
                 for line in in_:
                     if line.startswith("#"): continue
                     if "=" not in line: continue
