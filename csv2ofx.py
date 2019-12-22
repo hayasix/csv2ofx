@@ -32,7 +32,7 @@ __author__ = "HAYASHI Hideki"
 __email__ = "hideki@hayasix.com"
 __copyright__ = "Copyright (C) 2012 HAYASHI Hideki <hideki@hayasix.com>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0a12"
+__version__ = "1.0.0a13"
 __status__ = "Development"
 
 
@@ -364,8 +364,9 @@ class Journal(set):
                         if " 販売: " in t.memo:
                             t.memo = t.memo[:t.memo.index(" 販売: ")]
                 # Fix memo using the user-defined substitution table.
-                for k, v in substdic.items():
-                    t.memo.replace(k, v)
+                if subst:
+                    for k, v in substdic.items():
+                        t.memo.replace(k, v)
                 # Remove duplicate description from memo.
                 dlen = len(t.description)
                 if (t.memo[:dlen] == t.description and
