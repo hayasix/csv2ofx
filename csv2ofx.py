@@ -3,7 +3,7 @@
 
 """CSV to OFX converter.
 
-Usage: {0} [options] PATH...
+Usage: {0} [options] [PATH...]
 
 Options:
   -h, --help                show this help message and exit.
@@ -13,6 +13,7 @@ Options:
   -a, --amazon <file>       specify Amazon.co.jp order history file
   -s, --subst <file>        specify user-defined memo substitution table
   -z, --timezone <tz>       timezone eg. GMT+0, JST-9, PST+8.
+  -l, --show-issuers        show issuer list
   --encoding <encoding>     specify encoding of CONF.
   --upper                   coerce description to uppercase.
 
@@ -32,7 +33,7 @@ __author__ = "HAYASHI Hideki"
 __email__ = "hideki@hayasix.com"
 __copyright__ = "Copyright (C) 2012 HAYASHI Hideki <hideki@hayasix.com>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0a13"
+__version__ = "1.0.0a14"
 __status__ = "Development"
 
 
@@ -402,13 +403,13 @@ class Journal(set):
                 lastdate=self.ofxdatetime(max(t.date for t in self)),
                 )]
         result.extend(TRANSACTION.format(
-                transactiontype="CREDIT",
+                transactiontype="CREDIT" if 0 <= t.amount else "DEBIT",
                 datetime=self.ofxdatetime(t.date),
-                amount=t.amount,
+                amount=abs(t.amount),
                 fitid=t.fitid,
                 description=xcase(normalize(t.description)),
                 memo=normalize(t.memo),
-                ) for t in sorted(self, key=lambda t: t.fitid))
+                ) for t in sorted(self, key=lambda t: t.fitid) if t.amount)
         result.append(FOOTER.format(
                 totalamount=sum(t.amount for t in self)))
         with open(pathname, "w", encoding="utf-8") as f:
@@ -423,14 +424,18 @@ class AmazonJournal(dict):
             for r in csv.reader(in_):
                 if (not r[11]) or float(r[11]) == 0.0:
                     continue
-                self[r[1]] = dict(
-                    date=datetime.date(*(map(int, r[12].split("/")))),
-                    amount=float(r[11]),
-                    description=r[2],
-                    memo=r[3],
-                    price=float(r[4]),
-                    quantity=float(r[5]),
-                    )
+                try:
+                    self[r[1]] = dict(
+                        date=datetime.date(*(map(int, r[12].split("/")))),
+                        amount=float(r[11]),
+                        description=r[2],
+                        memo=r[3],
+                        price=float(r[4]),
+                        quantity=float(r[5]),
+                        )
+                except:
+                    print(r)
+                    pass
 
     def search(self, date=None, amount=None):
         if not isinstance(date, (tuple, list)):
@@ -507,18 +512,23 @@ def main(docstring):
     import configparser
     args = docopt.docopt(docstring.format(__file__), version=__version__)
     for k, v in args.items():
-        setattr(args, k.lstrip("-"), v)
+        setattr(args, k.lstrip("-").replace("-", "_"), v)
     args.conf = os.path.expanduser(args.conf or "~/csv2ofx.ini")
     args.encoding = args.encoding or getencoding(args.conf) or "utf-8"
-    conf = configparser.SafeConfigParser(dict(
+    conf = configparser.ConfigParser(dict(
             encoding=DEFAULT_CSV_ENCODING,
             timezone=DEFAULT_TIMEZONE,
-            cardnumber=None,
-            cardname=None,
+            cardnumber="",
+            cardname="",
             ))
     if args.encoding.lower().replace("_", "-") == "utf-8":
         args.encoding = "utf-8-sig"
     conf.read(args.conf, encoding=args.encoding)
+    if args.show_issuers:
+        for s in conf:
+            if s == "DEFAULT": continue
+            print(s)
+        return
     tz = args.timezone or conf.get("DEFAULT", "timezone")
     tzinfo = tz and gettimezone(tz) or None
     cardnumber = conf.get(args.issuer, "cardnumber")
@@ -559,4 +569,4 @@ def main(docstring):
 
 
 if __name__ == "__main__":
-    main(__doc__)
+    sys.exit(main(__doc__))
