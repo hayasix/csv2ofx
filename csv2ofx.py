@@ -33,7 +33,7 @@ __author__ = "HAYASHI Hideki"
 __email__ = "hideki@hayasix.com"
 __copyright__ = "Copyright (C) 2012 HAYASHI Hideki <hideki@hayasix.com>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0a14"
+__version__ = "1.0.0b"
 __status__ = "Development"
 
 
@@ -115,10 +115,16 @@ def normalize(s):
 def parse_fielddef(cols):
     """Build the reverse lookup table for field positions.
 
-    cols        (str) comma-separated field names
+    Parameters
+    ----------
+    cols : str
+        comma-separated field names
 
-    Returns a dict, each key of which is a field name and its associated
-    value is the field position.
+    Returns
+    -------
+    dict
+        each key of which is a field name and its associated value is
+        the field position.
     """
     dic = dict()
     for i, col in enumerate(cols.split(",")):
@@ -136,11 +142,15 @@ def parse_fielddef(cols):
 def parse_date(s, tzinfo=None):
     """Parse a date string.
 
-    s           (str) date string; format:
-                    'YYYY/mm/dd' | 'YYYY-mm-dd' | 'YYYYmmdd'
-    tzinfo      (Timezone)
+    s : str
+        date string; format: 'YYYY/mm/dd' | 'YYYY-mm-dd' | 'YYYYmmdd'
+    tzinfo : Timezone
 
-    Returns a datetime.datetime with tzinfo as the timezone information.
+    Returns
+    -------
+    datetime.datetime
+        date and time with tzinfo as the timezone information
+
     If tzinfo=None, a naive (timezone-less) datetime.dateme is returned.
     """
     if not isinstance(s, str):
@@ -211,33 +221,30 @@ class Transaction(object):
         self.tzinfo = tzinfo
 
     def __repr__(self):
-        return "Transaction({dt}:{dsc}:{amt}:{cat}:{tag}:{mem}:{act}:{sts}:{tz})".format(
-                dt=self.date.strftime("%Y-%m-%d"), dsc=self.description,
-                amt=self.amount, cat=self.category, tag=",".join(self.tags),
-                mem=self.memo, act=self.account, sts=self.status,
-                tz=self.tzinfo or "")
+        return "Transaction(" + ":".join((
+                self.date.strftime("%Y-%m-%d"),
+                self.description,
+                str(self.amount),
+                self.category,
+                ",".join(self.tags),
+                self.memo,
+                self.account,
+                self.status,
+                self.tzinfo or "",
+                )) + ")"
 
     def __str__(self):
-        return dedent("""\
-                Date: {dt}
-                Description: {dsc}
-                Amount: {amt}
-                Category: {cat}
-                Tags: {tag}
-                Memo: {mem}
-                Account: {act}
-                Status: {sts}
-                Timezone: {tz}
-                """).format(
-                        dt=self.date.strftime("%Y-%m-%d"),
-                        dsc=self.description,
-                        amt=self.amount,
-                        cat=self.category,
-                        tag=",".join(self.tags),
-                        mem=self.memo,
-                        act=self.account,
-                        sts=self.status,
-                        tz=self.tzinfo or "")
+        return dedent(f"""\
+                Date: {self.date.strftime("%Y-%m-%d")}
+                Description: {self.description}
+                Amount: {self.amount}
+                Category: {self.category}
+                Tags: {",".join(self.tags)}
+                Memo: {self.memo}
+                Account: {self.account}
+                Status: {self.status}
+                Timezone: {self.tzinfo or ""}
+                """)
 
 
 def detect_encoding(path):
@@ -258,9 +265,13 @@ class Journal(set):
     def ofxdatetime(dt):
         """Build a datetime string that complies with OFX standard.
 
-        dt      (datetime.datetime)
+        Parameters
+        ----------
+        dt : datetime.datetime
 
-        Returns a str.
+        Returns
+        -------
+        str
         """
         if not dt.tzinfo:  # naive localtime
             return dt.strftime("%Y%m%d%H%M%S")
@@ -282,23 +293,39 @@ class Journal(set):
             **option):
         """Read transactions from CSV file.
 
-        pathname        (str) pathname of the source CSV file
-        accounttype     (str) 'bank' | 'credit'
-        cardnumber      (str) card number (16 digits or so)
-                        (int) field position of card number (if header==True)
-        cardname        (str) card name (card holder's name)
-                        (int) field position of card name (if header==True)
-        header          (bool) Read card number/name from the header
-        fields          (str) comma-separated field names; a sequence of
-                        'date', 'amount', 'description', 'memo' and
-                        'commission'
-        encoding        (str) encoding of the source CSV file
-        tzinfo          (datetime.tzinfo) timezone for transactions
-        amazon          (str) Amazon.co.jp order history
-        subst           (str) User-defined memo substitution table
-        **option        (dict) (ignored currently)
+        Parameters
+        ----------
+        pathname : str
+            pathname of the source CSV file
+        accounttype : str
+            'bank' | 'credit'
+        cardnumber : str | int
+            (str) card number (16 digits or so)
+            (int) field position of card number (if header==True)
+        cardname : str | int
+            (str) card name (card holder's name)
+            (int) field position of card name (if header==True)
+        header : bool
+            read card number/name from the header
+        fields : str
+            comma-separated field names; a sequence of 'date', 'amount',
+            'description', 'memo' and 'commission'
+        encoding : str
+            encoding of the source CSV file
+        tzinfo : datetime.tzinfo
+            timezone for transactions
+        amazon : str
+            Amazon.co.jp order history
+        subst : str
+            User-defined memo substitution table
+        **option : dict
+            (ignored currently)
 
-        Returns None.  To get transactions read, iterate over self.
+        Returns
+        -------
+        None
+
+        To get transactions read, iterate over self.
         """
         if amazon:
             az = AmazonJournal()
@@ -355,15 +382,15 @@ class Journal(set):
                     t.memo = ""
                 t.description = re.sub(" +", " ", t.description)
                 t.memo = re.sub(" +", " ", t.memo)
-                if amazon:
+                if amazon and t.description == "AMAZON.CO.JP":
                     txns = az.search(date=t.date.date(), amount=-t.amount)
-                    if len(txns) == 1:
-                        t.memo = normalize((txns[0]["description"]) +
-                                   " " +
-                                   txns[0]["memo"]
-                                 ).strip()
-                        if " 販売: " in t.memo:
-                            t.memo = t.memo[:t.memo.index(" 販売: ")]
+                    if len(txns) != 1:
+                        sys.stderr.write(
+                            "W: multiple or no card charges found "
+                            "for date={}, amount={}\n".format(
+                                t.date.date(), -t.amount))
+                    else:
+                        t.memo = txns[0][1]
                 # Fix memo using the user-defined substitution table.
                 if subst:
                     for k, v in substdic.items():
@@ -388,10 +415,16 @@ class Journal(set):
     def write_ofx(self, pathname, upper=False):
         """Write transactions as a OFX stream.
 
-        pathname        (str) location to write transactions out
-        upper           (bool) coerce description to uppercase
+        Parameters
+        ----------
+        pathname : str
+            location to write transactions out
+        upper : bool
+            coerce description to uppercase
 
-        Returns None.
+        Returns
+        -------
+        None
         """
         xcase = lambda s: s.upper() if upper else s
         # Build OFX data.
@@ -416,42 +449,148 @@ class Journal(set):
             f.writelines(result)
 
 
+class AmazonOrderItem(dict):
+
+    """Single item with name, unit price, quantity, etc."""
+
+    def __init__(self, row):
+        name = row["商品名"]
+        description = row["付帯情報"].replace("　", " ").split(" ", 1)[0]
+        self.update(dict(
+            orderid = row["注文番号"],
+            name = row["商品名"],
+            description = row["付帯情報"],
+            price = row["価格"],
+            quantity = row["個数"],
+            # Following data will NOT be fed for あわせ買い対象商品
+            amount = row["商品小計"],  # = price * quantity
+            ))
+
+    def __str__(self):
+        return self["name"]
+
+
+class AmazonOrderBatch(list):
+
+    """List of item-sets.
+
+    An item-set is a list of an item and its add-on items.
+    So, AmazonOrderBatch is a list of lists.
+    """
+
+    def __init__(self, row):
+        self.append([AmazonOrderItem(row)])
+
+    def add(self, row):
+        self[-1].append(AmazonOrderItem(row))
+
+    @staticmethod
+    def omit(s, width=40):
+        def charwidth(c):
+            return (1, 2)[unicodedata.east_asian_width(c) in "FWA"]
+        cw = list(map(charwidth, normalize(s).replace("　", " ")))
+        if sum(cw) <= width: return s
+        t = -1
+        maxlen = int((width - 2) / 2)
+        while sum(cw[t - 1:]) <= maxlen: t -= 1
+        h = 1
+        maxlen = width - sum(cw[t:]) - 2
+        while sum(cw[:h + 1]) <= maxlen: h += 1
+        return s[:h] + "." * (width - sum(cw[:h]) - sum(cw[t:])) + s[t:]
+
+
+    def omitted(self):
+        return ";".join(",".join(self.omit(item["name"]) for item in itemset)
+                        for itemset in self)
+
+    def __str__(self):
+        return ";".join(",".join(item["name"] for item in itemset)
+                        for itemset in self)
+
+
+class AmazonOrder(list):
+
+    """List of AmazonOrderBatches. """
+
+    def __init__(self, orderid):
+        self.orderid = orderid
+        self.charges = []
+
+    def __str__(self):
+        return ";;".join(map(str, self))
+
+    @staticmethod
+    def ccc(row):
+        return (row["クレカ請求日"], row["クレカ請求額"], row["クレカ種類"])
+
+    def add_charge(self, row):
+        self.charges.append(self.ccc(row))
+
+    def add_row(self, row):
+        name = row["商品名"]
+        if name in ("（注文全体）", "（割引）", "（配送料・手数料）",
+                    "（Amazonポイント）"):
+            return
+        if name == "（クレジットカードへの請求）":
+            ccc = self.ccc(row)
+            if ccc in self.charges:  # Charge records sometimes duplicate!
+                self.charges.remove(ccc)
+            self.add_charge(row)
+            return
+        if row["クレカ請求額"]:  # Only for digitally sold items.
+            row["クレカ請求日"] = row["注文日"]
+            self.append(AmazonOrderBatch(row))
+            self.add_charge(row)
+            return
+        if row["商品小計"] != "":
+            self.append(AmazonOrderBatch(row))
+        else:  # Add-on items.
+            self[-1].add(row)
+
+    def order_charge_pairs(self):
+        if len(self.charges) == 1:
+            return [(self, self.charges[0])]
+        return [(str(item), self.charges[i]) for i, item in enumerate(self)]
+
+
 class AmazonJournal(dict):
 
     def read_csv(self, pathname):
-        with open(pathname, "r", encoding="utf-8") as in_:
-            in_.readline()  # skip the header
-            for r in csv.reader(in_):
-                if (not r[11]) or float(r[11]) == 0.0:
-                    continue
-                try:
-                    self[r[1]] = dict(
-                        date=datetime.date(*(map(int, r[12].split("/")))),
-                        amount=float(r[11]),
-                        description=r[2],
-                        memo=r[3],
-                        price=float(r[4]),
-                        quantity=float(r[5]),
-                        )
-                except:
-                    print(r)
-                    pass
+        with open(pathname, "r", encoding="utf-8-sig") as in_:
+            reader = csv.DictReader(in_)
+            for row in reader:
+                order_id = row["注文番号"]
+                if order_id not in self:
+                    self[order_id] = order = AmazonOrder(order_id)
+                order.add_row(row)
 
     def search(self, date=None, amount=None):
-        if not isinstance(date, (tuple, list)):
+        if date and not isinstance(date, (tuple, list)):
             date = (date - datetime.timedelta(days=1),
-                    date + datetime.timedelta(days=1))
-        return [txn for txn in self.values()
-                if (date is None or date[0] <= txn["date"] < date[1]) and
-                   (amount is None or txn["amount"] == amount)]
+                    date + datetime.timedelta(days=2))
+        result = []
+        for order in self.values():
+            for i, charge in enumerate(order.charges):
+                chargedate = parse_date(charge[0]).date()
+                chargeamount = int(charge[1])
+                if ((date is None or date[0] <= chargedate <= date[1]) and
+                        (amount is None or chargeamount == amount)):
+                    result.append((order.orderid, order[i].omitted()))
+        return result
 
 
 def getencoding(path):
     """Detect encoding string from the leading two lines.
 
-    path        (str) pathname of the source file
+    Parameters
+    ----------
+    path : str
+        pathname of the source file
 
-    Returns an encoding str or None.
+    Returns
+    -------
+    str | None
+        encoding specified in file
     """
     coding = re.compile(r"coding[:=]\s*(\w)+")
     with open(path, encoding="ascii") as in_:
@@ -468,9 +607,14 @@ def getencoding(path):
 def gettimezone(timezone):
     """Get a Timezone.
 
-    timezone        (str) timezone string
+    Parameters
+    ----------
+    timezone : str
+        timezone string
 
-    Returns a Timezone.
+    Returns
+    -------
+    Timezone
 
     >>> gettimezone('JST-9').utcoffset()
     datetime.timedelta(0, 32400)
@@ -487,9 +631,14 @@ def gettimezone(timezone):
 def preprocess_btmucc(pathname):
     """Special preprocessor for the odd CSV files presented by BTMU.
 
-    pathname        (str) pathname of the source CSV file
+    Parameters
+    ----------
+    pathname : str
+        pathname of the source CSV file
 
-    Returns None.
+    Returns
+    -------
+    None
 
     This function eliminate the extraordinariness in its header part.
     The original file is preserved but renamed with the additional suffix
@@ -520,6 +669,7 @@ def main(docstring):
             timezone=DEFAULT_TIMEZONE,
             cardnumber="",
             cardname="",
+            include="",
             ))
     if args.encoding.lower().replace("_", "-") == "utf-8":
         args.encoding = "utf-8-sig"
@@ -531,6 +681,8 @@ def main(docstring):
         return
     tz = args.timezone or conf.get("DEFAULT", "timezone")
     tzinfo = tz and gettimezone(tz) or None
+    include = conf.get(args.issuer, "include")
+    if include: args.issuer = include.strip("[]")
     cardnumber = conf.get(args.issuer, "cardnumber")
     cardname = conf.get(args.issuer, "cardname")
     encoding = conf.get(args.issuer, "encoding")
