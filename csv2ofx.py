@@ -33,7 +33,7 @@ __author__ = "HAYASHI Hideki"
 __email__ = "hideki@hayasix.com"
 __copyright__ = "Copyright (C) 2012 HAYASHI Hideki <hideki@hayasix.com>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0b"
+__version__ = "1.0.0b2"
 __status__ = "Development"
 
 
@@ -347,8 +347,10 @@ class Journal(set):
             reader = csv.reader(f)
             if header:
                 header = next(reader)
-                cardnumber = header[cardnumber]
-                cardname = header[cardname]
+                if isinstance(cardnumber, (int, float)):
+                    cardnumber = header[cardnumber]
+                if isinstance(cardname, (int, float)):
+                    cardname = header[cardname]
             elif header is not None:
                 next(reader)  # Skip 1 line.
             # Read transactions.
