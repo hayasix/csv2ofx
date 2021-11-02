@@ -33,7 +33,7 @@ __author__ = "HAYASHI Hideki"
 __email__ = "hideki@hayasix.com"
 __copyright__ = "Copyright (C) 2012 HAYASHI Hideki <hideki@hayasix.com>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0b2"
+__version__ = "1.0.0b3"
 __status__ = "Development"
 
 
@@ -366,7 +366,7 @@ class Journal(set):
                 t.date.replace(tzinfo=tzinfo)
                 t.description = c("description")
                 try:
-                    t.amount = n("+amount") - n("-amount")
+                    t.amount = abs(n("+amount")) - abs(n("-amount"))
                 except KeyError:
                     try:
                         t.amount = n("amount")
@@ -377,7 +377,8 @@ class Journal(set):
                         assert accounttype == "credit"
                 if "memo" in fields:
                     if isinstance(fields["memo"], (list, tuple)):
-                        t.memo = ",".join(line[col] for col in fields["memo"])
+                        t.memo = ",".join(line[col] for col in fields["memo"]
+                                                            if line[col])
                     else:
                         t.memo = c("memo")
                 else:
