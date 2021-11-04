@@ -33,7 +33,7 @@ __author__ = "HAYASHI Hideki"
 __email__ = "hideki@hayasix.com"
 __copyright__ = "Copyright (C) 2012 HAYASHI Hideki <hideki@hayasix.com>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0b3"
+__version__ = "1.0.0b4"
 __status__ = "Development"
 
 
@@ -308,8 +308,9 @@ class Journal(set):
         header : bool
             read card number/name from the header
         fields : str
-            comma-separated field names; a sequence of 'date', 'amount',
-            'description', 'memo' and 'commission'
+            comma-separated field names;
+            a sequence of 'date', 'amount', 'description', 'memo', 'commission';
+            '+amount' and '-amount', and 'date?' are also available
         encoding : str
             encoding of the source CSV file
         tzinfo : datetime.tzinfo
@@ -341,6 +342,7 @@ class Journal(set):
                     k, v = line.strip().split("=", 1)
                     substdic[k] = v
         fields = parse_fielddef(fields)
+        datefield = [f for f in fields if f in ("date", "date?")][0]
         # Read CSV header.
         encoding = encoding or DEFAULT_CSV_ENCODING
         with open(pathname, "r", encoding=encoding) as f:
@@ -355,14 +357,18 @@ class Journal(set):
                 next(reader)  # Skip 1 line.
             # Read transactions.
             prev_date = datetime.datetime(2000, 1, 1)
-            c = lambda f: normalize(line[fields[f]])
-            n = lambda f: int(normalize(c(f)).replace(",", "") or "0")
+            def c(f, defval=None):
+                if f.endswith("?"):
+                    return normalize(line[fields[f.rstrip("?")]]) or defval
+                return normalize(line[fields[f]])
+            def n(f):
+                return int(normalize(c(f)).replace(",", "") or "0")
             for i, line in enumerate(reader):
                 t = Transaction()
                 try:
-                    t.date = parse_date(c("date"))
+                    t.date = parse_date(c(datefield, defval=prev_date))
                 except ValueError:
-                    t.date = prev_date
+                    continue
                 t.date.replace(tzinfo=tzinfo)
                 t.description = c("description")
                 try:
@@ -428,7 +434,12 @@ class Journal(set):
         Returns
         -------
         None
+
+        Notes
+        -----
+        No file will be created if no transactions are recorded.
         """
+        if len(self) < 1: return
         xcase = lambda s: s.upper() if upper else s
         # Build OFX data.
         result = [HEADER.format(
