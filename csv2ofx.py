@@ -33,7 +33,7 @@ __author__ = "HAYASHI Hideki"
 __email__ = "hideki@hayasix.com"
 __copyright__ = "Copyright (C) 2012 HAYASHI Hideki <hideki@hayasix.com>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0b4"
+__version__ = "1.0.0b5"
 __status__ = "Development"
 
 
@@ -109,6 +109,7 @@ FOOTER = """\
 
 
 def normalize(s):
+    s = re.sub(r"([ｧ-ﾝ])-", "\1\uff70", s)
     return unicodedata.normalize("NFKC", s)
 
 
@@ -305,8 +306,9 @@ class Journal(set):
         cardname : str | int
             (str) card name (card holder's name)
             (int) field position of card name (if header==True)
-        header : bool
-            read card number/name from the header
+        header : int | bool
+            (int) header lines to skip
+            (bool) read card number/name from the header
         fields : str
             comma-separated field names;
             a sequence of 'date', 'amount', 'description', 'memo', 'commission';
@@ -347,14 +349,19 @@ class Journal(set):
         encoding = encoding or DEFAULT_CSV_ENCODING
         with open(pathname, "r", encoding=encoding) as f:
             reader = csv.reader(f)
-            if header:
-                header = next(reader)
+            if isinstance(header, (int, float)):
+                # Skip N lines.
+                for _ in range(int(header)):
+                    next(reader)
+            elif isinstance(header, bool):
+                line = next(reader)
                 if isinstance(cardnumber, (int, float)):
-                    cardnumber = header[cardnumber]
+                    cardnumber = line[cardnumber]
                 if isinstance(cardname, (int, float)):
-                    cardname = header[cardname]
-            elif header is not None:
-                next(reader)  # Skip 1 line.
+                    cardname = line[cardname]
+            elif header is not None:  # ''
+                # Skip 1 line.
+                next(reader)
             # Read transactions.
             prev_date = datetime.datetime(2000, 1, 1)
             def c(f, defval=None):
@@ -681,8 +688,11 @@ def main(docstring):
     conf = configparser.ConfigParser(dict(
             encoding=DEFAULT_CSV_ENCODING,
             timezone=DEFAULT_TIMEZONE,
+            type="",
             cardnumber="",
             cardname="",
+            head="",
+            body="",
             include="",
             ))
     if args.encoding.lower().replace("_", "-") == "utf-8":
@@ -695,24 +705,36 @@ def main(docstring):
         return
     tz = args.timezone or conf.get("DEFAULT", "timezone")
     tzinfo = tz and gettimezone(tz) or None
-    include = conf.get(args.issuer, "include")
-    if include: args.issuer = include.strip("[]")
-    cardnumber = conf.get(args.issuer, "cardnumber")
-    cardname = conf.get(args.issuer, "cardname")
-    encoding = conf.get(args.issuer, "encoding")
-    accounttype = (conf.get(args.issuer, "type") or "credit").lower()
-    try:
-        header = parse_fielddef(conf.get(args.issuer, "head"))
-        # Read card number/name from CSV.
-        # NB. Explicit cardnumber/cardname assignments take priority over
-        # definitions in header line.
-        if "cardnumber" in header:
-            cardnumber = cardnumber or header["cardnumber"]
-        if "cardname" in header:
-            cardname = cardname or header["cardname"]
-    except configparser.NoOptionError:
-        header = None
-    body = conf.get(args.issuer, "body")
+
+    def read_section(section):
+        cardnumber = cardname = encoding = actype = head = body = ""
+        include = conf.get(section, "include")
+        if include:
+            cardnumber, cardname, encoding, actype, head, body = read_section(include.strip("[]"))
+        cardnumber = conf.get(section, "cardnumber") or cardnumber
+        cardname = conf.get(section, "cardname") or cardname
+        encoding = conf.get(section, "encoding") or encoding
+        actype = (conf.get(section, "type") or "credit").lower() or actype
+        head = conf.get(section, "head") or head
+        if not head.isdigit():
+            try:
+                head = parse_fielddef(head)
+                # Read card number/name from CSV.
+                # NB. Explicit cardnumber/cardname assignments take priority over
+                # definitions in header line.
+                if "cardnumber" in head:
+                    cardnumber = cardnumber or head["cardnumber"]
+                if "cardname" in head:
+                    cardname = cardname or head["cardname"]
+                head = True
+            except configparser.NoOptionError:
+                head = None
+        body = conf.get(section, "body") or body
+        return (cardnumber, cardname, encoding, actype, head, body)
+
+    cardnumber, cardname, encoding, actype, head, body = read_section(args.issuer)
+    if head.isdigit():
+        head = int(head)
 
     for path in args.PATH:
         if "*" in path or "?" in path:
@@ -727,9 +749,9 @@ def main(docstring):
             out = in_[:-4] + ".ofx"
             journal = Journal()
             journal.read_csv(in_,
-                    accounttype=accounttype,
+                    accounttype=actype,
                     cardnumber=cardnumber, cardname=cardname,
-                    header=header, fields=body, encoding=encoding,
+                    header=head, fields=body, encoding=encoding,
                     tzinfo=tzinfo, amazon=args.amazon, subst=args.subst)
             journal.write_ofx(out, upper=args.upper)
 
