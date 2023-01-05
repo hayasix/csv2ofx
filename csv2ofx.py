@@ -14,6 +14,8 @@ Options:
   -s, --subst <file>        specify user-defined memo substitution table
   -z, --timezone <tz>       timezone eg. GMT+0, JST-9, PST+8.
   -l, --show-issuers        show issuer list
+  --start-date YYYYMMDD     start date to report
+  --end-date YYYYMMDD       end date to report
   --encoding <encoding>     specify encoding of CONF.
   --upper                   coerce description to uppercase.
 
@@ -27,21 +29,23 @@ import glob
 import re
 import unicodedata
 from textwrap import dedent
+from configparser import ConfigParser, NoOptionError
 
 
 __author__ = "HAYASHI Hideki"
 __email__ = "hideki@hayasix.com"
 __copyright__ = "Copyright (C) 2012 HAYASHI Hideki <hideki@hayasix.com>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0b5"
+__version__ = "1.0.0b6"
 __status__ = "Development"
 
 
 REFMARK = unicodedata.lookup("REFERENCE MARK")
-
-DEFAULT_CSV_ENCODING = "cp932"
-DEFAULT_TIMEZONE = "JST-9"
 UTF8BOM = b"\xef\xbb\xbf"  # "\ufeff"
+
+PARAMETERS = ["encoding", "timezone", "type", "cardnumber", "cardname",
+              "skip", "head", "body"]
+DEFAULTS = dict(encoding="cp932", timezone="JST-9")
 
 HEADER = """\
 OFXHEADER:100
@@ -109,7 +113,7 @@ FOOTER = """\
 
 
 def normalize(s):
-    s = re.sub(r"([ｧ-ﾝ])-", "\1\uff70", s)
+    s = re.sub(r"([ｧ-ﾜ])-", "\\1\uff70", s)
     return unicodedata.normalize("NFKC", s)
 
 
@@ -154,6 +158,8 @@ def parse_date(s, tzinfo=None):
 
     If tzinfo=None, a naive (timezone-less) datetime.dateme is returned.
     """
+    if isinstance(s, (datetime.date, datetime.datetime)):
+        return s
     if not isinstance(s, str):
         return None
     dt = None
@@ -286,6 +292,7 @@ class Journal(set):
             cardnumber=None,
             cardname=None,
             header=None,
+            skip=None,
             fields=None,  # date, amount, description, memo, commission
             encoding=None,
             tzinfo=None,
@@ -309,6 +316,7 @@ class Journal(set):
         header : int | bool
             (int) header lines to skip
             (bool) read card number/name from the header
+        skip : int | None
         fields : str
             comma-separated field names;
             a sequence of 'date', 'amount', 'description', 'memo', 'commission';
@@ -346,22 +354,19 @@ class Journal(set):
         fields = parse_fielddef(fields)
         datefield = [f for f in fields if f in ("date", "date?")][0]
         # Read CSV header.
-        encoding = encoding or DEFAULT_CSV_ENCODING
         with open(pathname, "r", encoding=encoding) as f:
             reader = csv.reader(f)
-            if isinstance(header, (int, float)):
-                # Skip N lines.
-                for _ in range(int(header)):
-                    next(reader)
-            elif isinstance(header, bool):
-                line = next(reader)
+            if skip:
+                for _ in range(skip):
+                    next(reader)  # Skip N lines.
+            if header:
+                header = next(reader)
                 if isinstance(cardnumber, (int, float)):
-                    cardnumber = line[cardnumber]
+                    cardnumber = header[cardnumber]
                 if isinstance(cardname, (int, float)):
-                    cardname = line[cardname]
+                    cardname = header[cardname]
             elif header is not None:  # ''
-                # Skip 1 line.
-                next(reader)
+                next(reader)  # Skip 1 line.
             # Read transactions.
             prev_date = datetime.datetime(2000, 1, 1)
             def c(f, defval=None):
@@ -428,7 +433,8 @@ class Journal(set):
             self.cardname = cardname
             self.datetime = datetime.datetime.now(tzinfo)
 
-    def write_ofx(self, pathname, upper=False):
+    def write_ofx(self, pathname, upper=False,
+                    start_date=None, end_date=None):
         """Write transactions as a OFX stream.
 
         Parameters
@@ -437,6 +443,10 @@ class Journal(set):
             location to write transactions out
         upper : bool
             coerce description to uppercase
+        start_date : datetime.date | '' | None
+            write out transactions on or after this date
+        end_date : datetime.date | '' | None
+            write out transactions on or before this date
 
         Returns
         -------
@@ -447,14 +457,23 @@ class Journal(set):
         No file will be created if no transactions are recorded.
         """
         if len(self) < 1: return
+        if start_date:
+            start_date = parse_date(start_date)
+        if end_date:
+            end_date = parse_date(end_date)
+        def in_period(d):
+            return ((not start_date or start_date <= d)
+                    and (not end_date or d <= end_date))
         xcase = lambda s: s.upper() if upper else s
         # Build OFX data.
+        subset = [t for t in self if t.amount and in_period(t.date)]
+        subset.sort(key=lambda t: t.fitid)
         result = [HEADER.format(
                 datetime=self.ofxdatetime(self.datetime),
                 cardname=self.cardname,
                 cardnumber=self.cardnumber,
-                firstdate=self.ofxdatetime(min(t.date for t in self)),
-                lastdate=self.ofxdatetime(max(t.date for t in self)),
+                firstdate=self.ofxdatetime(min(t.date for t in subset)),
+                lastdate=self.ofxdatetime(max(t.date for t in subset)),
                 )]
         result.extend(TRANSACTION.format(
                 transactiontype="CREDIT" if 0 <= t.amount else "DEBIT",
@@ -463,9 +482,9 @@ class Journal(set):
                 fitid=t.fitid,
                 description=xcase(normalize(t.description)),
                 memo=normalize(t.memo),
-                ) for t in sorted(self, key=lambda t: t.fitid) if t.amount)
+                ) for t in subset)
         result.append(FOOTER.format(
-                totalamount=sum(t.amount for t in self)))
+                totalamount=sum(t.amount for t in subset)))
         with open(pathname, "w", encoding="utf-8") as f:
             f.writelines(result)
 
@@ -677,65 +696,48 @@ def preprocess_btmucc(pathname):
         out.write(in_.read())
 
 
+def getparams(conf: ConfigParser, issuer: str, baselist=None) -> dict:
+    params = dict()
+    if conf.has_option(issuer, "include"):
+        base = conf.get(issuer, "include").strip("[] ")
+        if not baselist: baselist = list()
+        if base == issuer or base in baselist:
+            raise ValueError(f"include=['{base}'] causes an infinite loop")
+        baselist.append(base)
+        params.update(getparams(conf, base, baselist=baselist))
+    for key in PARAMETERS:
+        if not conf.has_option(issuer, key): continue
+        params[key] = conf.get(issuer, key)
+        if key != "head": continue
+        # Read card number/name from CSV header.
+        # NB. Explicit cardnumber/cardname assignments take priority over
+        # definitions in header line.
+        header = parse_fielddef(conf.get(issuer, "head"))
+        for k in ("cardnumber", "cardname"):
+            params.setdefault(k, header.get(k, ""))
+    return params
+
+
 def main(docstring):
     import docopt
-    import configparser
     args = docopt.docopt(docstring.format(__file__), version=__version__)
     for k, v in args.items():
         setattr(args, k.lstrip("-").replace("-", "_"), v)
     args.conf = os.path.expanduser(args.conf or "~/csv2ofx.ini")
     args.encoding = args.encoding or getencoding(args.conf) or "utf-8"
-    conf = configparser.ConfigParser(dict(
-            encoding=DEFAULT_CSV_ENCODING,
-            timezone=DEFAULT_TIMEZONE,
-            type="",
-            cardnumber="",
-            cardname="",
-            head="",
-            body="",
-            include="",
-            ))
+    conf = ConfigParser()
     if args.encoding.lower().replace("_", "-") == "utf-8":
         args.encoding = "utf-8-sig"
     conf.read(args.conf, encoding=args.encoding)
     if args.show_issuers:
-        for s in conf:
-            if s == "DEFAULT": continue
-            print(s)
+        print("\n".join(sorted(s for s in conf if s != "DEFAULT")))
         return
-    tz = args.timezone or conf.get("DEFAULT", "timezone")
-    tzinfo = tz and gettimezone(tz) or None
-
-    def read_section(section):
-        cardnumber = cardname = encoding = actype = head = body = ""
-        include = conf.get(section, "include")
-        if include:
-            cardnumber, cardname, encoding, actype, head, body = read_section(include.strip("[]"))
-        cardnumber = conf.get(section, "cardnumber") or cardnumber
-        cardname = conf.get(section, "cardname") or cardname
-        encoding = conf.get(section, "encoding") or encoding
-        actype = (conf.get(section, "type") or "credit").lower() or actype
-        head = conf.get(section, "head") or head
-        if not head.isdigit():
-            try:
-                head = parse_fielddef(head)
-                # Read card number/name from CSV.
-                # NB. Explicit cardnumber/cardname assignments take priority over
-                # definitions in header line.
-                if "cardnumber" in head:
-                    cardnumber = cardnumber or head["cardnumber"]
-                if "cardname" in head:
-                    cardname = cardname or head["cardname"]
-                head = True
-            except configparser.NoOptionError:
-                head = None
-        body = conf.get(section, "body") or body
-        return (cardnumber, cardname, encoding, actype, head, body)
-
-    cardnumber, cardname, encoding, actype, head, body = read_section(args.issuer)
-    if head.isdigit():
-        head = int(head)
-
+    if not conf.has_section(args.issuer):
+        raise ValueError(f"can't find issuer '{args.issuer}'")
+    params = getparams(conf, args.issuer)
+    for k, v in DEFAULTS.items(): params.setdefault(k, v)
+    tz = args.timezone or params.get("timezone")
+    tzinfo = gettimezone(tz) if tz else None
     for path in args.PATH:
         if "*" in path or "?" in path:
             filelist = glob.glob(path)
@@ -748,12 +750,16 @@ def main(docstring):
                 preprocess_btmucc(in_)
             out = in_[:-4] + ".ofx"
             journal = Journal()
+            def _(k): return params.get(k)
             journal.read_csv(in_,
-                    accounttype=actype,
-                    cardnumber=cardnumber, cardname=cardname,
-                    header=head, fields=body, encoding=encoding,
+                    accounttype=_("type"),
+                    cardnumber=_("cardnumber"), cardname=_("cardname"),
+                    header=_("header"), skip=int(_("skip") or "0"),
+                    fields=_("body"), encoding=_("encoding"),
                     tzinfo=tzinfo, amazon=args.amazon, subst=args.subst)
-            journal.write_ofx(out, upper=args.upper)
+            journal.write_ofx(out, upper=args.upper,
+                    start_date=args["--start-date"],
+                    end_date=args["--end-date"])
 
 
 if __name__ == "__main__":
