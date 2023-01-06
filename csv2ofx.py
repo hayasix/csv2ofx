@@ -36,13 +36,14 @@ __author__ = "HAYASHI Hideki"
 __email__ = "hideki@hayasix.com"
 __copyright__ = "Copyright (C) 2012 HAYASHI Hideki <hideki@hayasix.com>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0b6"
+__version__ = "1.0.0b7"
 __status__ = "Development"
 
 
 REFMARK = unicodedata.lookup("REFERENCE MARK")
 UTF8BOM = b"\xef\xbb\xbf"  # "\ufeff"
 
+CONFIGS = ["~/.config/csv2ofx/config", "~/csv2ofx.ini"]
 PARAMETERS = ["encoding", "timezone", "type", "cardnumber", "cardname",
               "skip", "head", "body"]
 DEFAULTS = dict(encoding="cp932", timezone="JST-9")
@@ -110,6 +111,10 @@ FOOTER = """\
  </CREDITCARDMSGSRSV1>
 </OFX>
 """.replace("\r\n", "\n")
+
+
+if sys.version < "3.8":
+    raise RuntimeError("Python < 3.8 is not supported")
 
 
 def normalize(s):
@@ -718,12 +723,22 @@ def getparams(conf: ConfigParser, issuer: str, baselist=None) -> dict:
     return params
 
 
+def expandpath(path: str) -> str:
+    return os.path.abspath(os.path.expanduser(os.path.expandvars(path)))
+
+
+def findconf(path: str) -> str:
+    for p in [path] + CONFIGS:
+        if p and os.path.exists(p := expandpath(p)): return p
+    raise ValueError("no configuration file")
+
+
 def main(docstring):
     import docopt
     args = docopt.docopt(docstring.format(__file__), version=__version__)
     for k, v in args.items():
         setattr(args, k.lstrip("-").replace("-", "_"), v)
-    args.conf = os.path.expanduser(args.conf or "~/csv2ofx.ini")
+    args.conf = findconf(args.conf)
     args.encoding = args.encoding or getencoding(args.conf) or "utf-8"
     conf = ConfigParser()
     if args.encoding.lower().replace("_", "-") == "utf-8":
