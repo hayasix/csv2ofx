@@ -3,7 +3,7 @@
 
 """CSV to OFX converter.
 
-Usage: {0} [options] [PATH...]
+Usage: {script} [options] [PATH...]
 
 Options:
   -h, --help                show this help message and exit.
@@ -18,11 +18,15 @@ Options:
   --end-date YYYYMMDD       end date to report
   --encoding <encoding>     specify encoding of CONF.
   --upper                   coerce description to uppercase.
+  --debug                   equivalent to --loglevel DEBUG
+  --loglevel LEVEL          set loglevel to LEVEL [default: WARNING]
+  --logfile FILE            write log into FILE [default: {logfile}]
 
 """
 
 import sys
 import os
+from pathlib import Path
 import csv
 import datetime
 import glob
@@ -30,13 +34,14 @@ import re
 import unicodedata
 from textwrap import dedent
 from configparser import ConfigParser, NoOptionError
+import logging
 
 
 __author__ = "HAYASHI Hideki"
 __email__ = "hideki@hayasix.com"
 __copyright__ = "Copyright (C) 2012 HAYASHI Hideki <hideki@hayasix.com>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0b7"
+__version__ = "1.0.0b8"
 __status__ = "Development"
 
 
@@ -113,12 +118,13 @@ FOOTER = """\
 """.replace("\r\n", "\n")
 
 
-if sys.version < "3.8":
+if sys.version_info < (3, 8):
     raise RuntimeError("Python < 3.8 is not supported")
 
 
 def normalize(s):
     s = re.sub(r"([ｧ-ﾜ])-", "\\1\uff70", s)
+    s = re.sub(r"([ァ-ワぁ-わ])−", "\\1\\u30fc", s)
     return unicodedata.normalize("NFKC", s)
 
 
@@ -358,9 +364,9 @@ class Journal(set):
                     substdic[k] = v
         fields = parse_fielddef(fields)
         datefield = [f for f in fields if f in ("date", "date?")][0]
-        # Read CSV header.
         with open(pathname, "r", encoding=encoding) as f:
             reader = csv.reader(f)
+            # Read CSV header.
             if skip:
                 for _ in range(skip):
                     next(reader)  # Skip N lines.
@@ -381,6 +387,7 @@ class Journal(set):
             def n(f):
                 return int(normalize(c(f)).replace(",", "") or "0")
             for i, line in enumerate(reader):
+                logging.debug(f">>> {line}")
                 t = Transaction()
                 try:
                     t.date = parse_date(c(datefield, defval=prev_date))
@@ -733,9 +740,7 @@ def findconf(path: str) -> str:
     raise ValueError("no configuration file")
 
 
-def main(docstring):
-    import docopt
-    args = docopt.docopt(docstring.format(__file__), version=__version__)
+def main(args: dict):
     for k, v in args.items():
         setattr(args, k.lstrip("-").replace("-", "_"), v)
     args.conf = findconf(args.conf)
@@ -777,5 +782,34 @@ def main(docstring):
                     end_date=args["--end-date"])
 
 
+def setlogger(filename=None, loglevel=logging.WARNING, force=False):
+    filename = Path(filename or __file__ or "current.log").with_suffix(".log")
+    logging.basicConfig(filename=str(filename),
+            format="%(asctime)s:%(levelname)s:%(module)s:%(message)s",
+            encoding="utf-8-sig",
+            level=loglevel,
+            force=force)
+    import atexit; atexit.register(logging.shutdown)
+
+
+def __main__():
+    """Support for logging."""
+    from docopt import docopt
+    args = docopt(__doc__.format(script=(_ := Path(__file__)).name,
+                                 logfile=_.with_suffix(".log").name),
+                  version=__version__)
+    loglevel = logging.DEBUG if args["--debug"] else args["--loglevel"]
+    setlogger(filename=args["--logfile"], loglevel=loglevel)
+    import atexit; atexit.register(logging.shutdown)
+    try:
+        return main(args)
+    except Exception:
+        import traceback
+        loglines = traceback.format_exc().splitlines()
+        logging.error(loglines[-1])
+        for logline in loglines[:-1]: logging.error(logline)
+        raise
+
+
 if __name__ == "__main__":
-    sys.exit(main(__doc__))
+    sys.exit(__main__())
