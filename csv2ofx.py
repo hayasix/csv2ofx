@@ -41,7 +41,7 @@ __author__ = "HAYASHI Hideki"
 __email__ = "hideki@hayasix.com"
 __copyright__ = "Copyright (C) 2012 HAYASHI Hideki <hideki@hayasix.com>"
 __license__ = "ZPL 2.1"
-__version__ = "1.0.0b8"
+__version__ = "1.0.0b9"
 __status__ = "Development"
 
 
@@ -124,7 +124,7 @@ if sys.version_info < (3, 8):
 
 def normalize(s):
     s = re.sub(r"([ｧ-ﾜ])-", "\\1\uff70", s)
-    s = re.sub(r"([ァ-ワぁ-わ])−", "\\1\\u30fc", s)
+    s = re.sub(r"([ァ-ワぁ-わ])−", "\\1\u30fc", s)
     return unicodedata.normalize("NFKC", s)
 
 
@@ -267,7 +267,7 @@ class Transaction(object):
 
 def detect_encoding(path):
     """Detect the encoding of a text file."""
-    pat = re.compile(b"^#.*coding[:=]\s*([\w\-]+)", re.I)
+    pat = re.compile(br"^#.*coding[:=]\s*([\w\-]+)", re.I)
     with open(path, "rb") as in_:
         if in_.read(3) == UTF8BOM: return "utf-8-sig"
         in_.seek(0)
